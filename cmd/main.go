@@ -1,49 +1,49 @@
 package main
 
 import (
+	"fmt"
 	"log"
-	"os"
+	"time"
 
-	// application
-	"github.com/felipewom/go-hexagonal/internal/application/api"
-	"github.com/felipewom/go-hexagonal/internal/application/core/arithmetic"
-
-	// adapters
-	gRPC "github.com/felipewom/go-hexagonal/internal/adapters/framework/left/grpc"
-	"github.com/felipewom/go-hexagonal/internal/adapters/framework/right/db"
+	"github.com/jlaffaye/ftp"
 )
 
 func main() {
-	var err error
+	// ข้อมูลการเชื่อมต่อ
+	server := "ingestprogram.thaipbs.or.th:21" // พอร์ต FTP ปกติคือ 21
+	user := "124"
+	pass := "1234"
 
-	dbaseDriver := os.Getenv("DB_DRIVER")
-	dsourceName := os.Getenv("DS_NAME")
-
-	dbAdapter, err := db.NewAdapter(dbaseDriver, dsourceName)
+	// เชื่อมต่อกับ FTP เซิร์ฟเวอร์
+	c, err := ftp.Dial(server, ftp.DialWithTimeout(5*time.Second))
 	if err != nil {
-		log.Fatalf("failed to initiate dbase connection: %v", err)
+		log.Fatalf("ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์: %v", err)
 	}
-	defer dbAdapter.CloseDbConnection()
 
-	// core
-	core := arithmetic.New()
+	// ล็อกอินด้วยชื่อผู้ใช้และรหัสผ่าน
+	err = c.Login(user, pass)
+	if err != nil {
+		log.Fatalf("ล็อกอินล้มเหลว: %v", err)
+	}
 
-	// NOTE: The application's right side port for driven
-	// adapters, in this case, a db adapter.
-	// Therefore the type for the dbAdapter parameter
-	// that is to be injected into the NewApplication will
-	// be of type DbPort
-	applicationAPI := api.NewApplication(dbAdapter, core)
+	fmt.Println("เชื่อมต่อและล็อกอินสำเร็จ")
 
-	// NOTE: We use dependency injection to give the grpc
-	// adapter access to the application, therefore
-	// the location of the port is inverted. That is
-	// the grpc adapter accesses the hexagon's driving port at the
-	// application boundary via dependency injection,
-	// therefore the type for the applicaitonAPI parameter
-	// that is to be injected into the gRPC adapter will
-	// be of type APIPort which is our hexagons left side
-	// port for driving adapters
-	gRPCAdapter := gRPC.NewAdapter(applicationAPI)
-	gRPCAdapter.Run()
+	// ดึงรายการไดเรกทอรีหลัก
+	entries, err := c.List("/")
+	if err != nil {
+		log.Fatalf("ไม่สามารถดึงรายการโฟลเดอร์ได้: %v", err)
+	}
+
+	fmt.Println("รายการโฟลเดอร์:")
+	for _, entry := range entries {
+		fmt.Printf(" - %s (Type: %v)\n", entry.Name, entry.Type)
+	}
+
+	// ล็อกเอาท์ออกจากเซิร์ฟเวอร์
+	err = c.Logout()
+	if err != nil {
+		log.Fatalf("การล็อกเอาท์ล้มเหลว: %v", err)
+	}
+
+	fmt.Println("ล็อกเอาท์สำเร็จ")
 }
